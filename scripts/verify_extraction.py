@@ -40,6 +40,8 @@ TRANSLATED_LABELS = {
     "مهندسی به‌صورت سرتاسری",
     "موتور استنتاج",
     "گره", "یال", "پیوند",
+    "وقت‌م را ذخیره می‌کند",
+    "اشتباهات بزرگ‌تر را سریع‌تر",
 }
 
 SECTION_KEYS = ("title", "claim", "reason", "conclusion", "application")

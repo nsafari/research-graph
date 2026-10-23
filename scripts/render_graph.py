@@ -183,6 +183,30 @@ body {
   cursor: grab;
 }
 #graph:active { cursor: grabbing; }
+#search {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#search-input {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  width: 17rem;
+  max-width: 60vw;
+  color: var(--ink);
+}
+#search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#search-count { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
 #legend {
   position: absolute;
   bottom: 12px;
@@ -280,8 +304,10 @@ body {
   color: #4a3d28;
 }
 .meta p:last-child { margin-bottom: 0; }
-.links line { stroke: var(--edge); stroke-width: 1.2px; }
+.links line { stroke: var(--edge); stroke-width: 1.2px; transition: opacity 0.15s; }
 .links line.active { stroke: var(--edge-active); stroke-width: 2px; }
+.links line.dim { opacity: 0.12; }
+.node { transition: opacity 0.15s; }
 .edge-labels text {
   font-size: 10.5px;
   fill: var(--ink-soft);
@@ -323,6 +349,10 @@ body {
 <div id="app">
   <main id="stage" aria-label="نمودار گراف مقالات">
     <svg id="graph" role="img" aria-label="گراف نیرویی مقالات"></svg>
+    <div id="search">
+      <input id="search-input" type="search" placeholder="جستجو در عناوین، مفاهیم و متن‌ها..." autocomplete="off" aria-label="جستجو در مقاله‌ها">
+      <span id="search-count" aria-live="polite"></span>
+    </div>
     <div id="legend">«گره = مقاله، یال = تشابه موضوعی خاص (وزن‌دار)، خوشه = موضوع»</div>
   </main>
   <aside id="panel">
@@ -678,6 +708,45 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
       if (dx * dx + dy * dy > 25) return;
     }
     if (selectedId !== null) selectArticle(null);
+  });
+
+  var textById = new Map(articles.map(function (a) {
+    var parts = [a.title].concat(a.concepts, a.claim, a.reason, a.conclusion);
+    if (typeof a.application === "string") parts.push(a.application);
+    else if (Array.isArray(a.application)) parts = parts.concat(a.application);
+    return [a.id, parts.join(" ").toLowerCase()];
+  }));
+
+  function toFaDigits(n) {
+    return String(n).replace(/\d/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[d]; });
+  }
+
+  var searchInput = document.getElementById("search-input");
+  var searchCount = document.getElementById("search-count");
+
+  function applySearch() {
+    var q = searchInput.value.trim().toLowerCase();
+    var matches = 0;
+    nodes.forEach(function (d) {
+      d._searchMatch = !q || textById.get(d.id).indexOf(q) !== -1;
+      if (q && d._searchMatch) matches++;
+    });
+    nodeSel.style("opacity", function (d) { return d._searchMatch ? 1 : 0.15; });
+    function bothMatch(d) { return d.source._searchMatch && d.target._searchMatch; }
+    linkSel.classed("dim", function (d) { return q && !bothMatch(d); });
+    labelSel.style("opacity", function (d) { return q && !bothMatch(d) ? 0.15 : 1; });
+    searchCount.textContent = q ? toFaDigits(matches) + " نتیجه" : "";
+  }
+
+  searchInput.addEventListener("input", applySearch);
+  searchInput.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      searchInput.value = "";
+      applySearch();
+    } else if (event.key === "Enter") {
+      var first = nodes.find(function (d) { return d._searchMatch; });
+      if (first) selectArticle(first.id);
+    }
   });
 
   window.addEventListener("resize", function () {
