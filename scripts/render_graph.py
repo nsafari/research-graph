@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
 REQUIRED_FIELDS = ("id", "title", "source", "concepts", "claim", "reason", "conclusion")
 STRING_FIELDS = ("id", "title", "source")
 LIST_OF_STR_FIELDS = ("concepts", "claim", "reason", "conclusion")
+OPTIONAL_TEXT_FIELDS = ("application",)
 MAX_PARAGRAPHS = 5
 
 
@@ -77,6 +79,13 @@ def validate_articles(payload: object) -> list[dict]:
             value = article[field]
             if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
                 fail(f"{where}: field '{field}' must be an array of strings")
+        for field in OPTIONAL_TEXT_FIELDS:
+            if field in article:
+                value = article[field]
+                ok_str = isinstance(value, str)
+                ok_list = isinstance(value, list) and all(isinstance(i, str) for i in value)
+                if not (ok_str or ok_list):
+                    fail(f"{where}: field '{field}' must be a string or an array of strings")
     return articles
 
 
@@ -91,15 +100,29 @@ def warn_on_long_articles(articles: list[dict]) -> None:
             )
 
 
-def compute_edges(articles: list[dict]) -> list[tuple[str, str, list[str]]]:
-    """Return (source_id, target_id, shared_concepts) for every connected pair."""
+def compute_weighted_edges(articles: list[dict], min_weight: float) -> list[tuple[str, str, list[str]]]:
+    """Return (source_id, target_id, shared_concepts) for pairs whose summed
+    IDF weight over shared concepts reaches ``min_weight``.
+
+    IDF = ln(N / df): a concept present in every article gets weight 0, so
+    generic hubs (e.g. «هوش مصنوعی») can no longer clique the whole graph.
+    Must stay in sync with the identical computation in the page template.
+    """
     unique_concepts = [list(dict.fromkeys(article["concepts"])) for article in articles]
     concept_sets = [set(concepts) for concepts in unique_concepts]
+    df: dict[str, int] = {}
+    for concepts in unique_concepts:
+        for c in concepts:
+            df[c] = df.get(c, 0) + 1
+    n = len(articles)
     edges: list[tuple[str, str, list[str]]] = []
-    for i in range(len(articles)):
-        for j in range(i + 1, len(articles)):
+    for i in range(n):
+        for j in range(i + 1, n):
             shared = [c for c in unique_concepts[j] if c in concept_sets[i]]
-            if shared:
+            if not shared:
+                continue
+            weight = sum(math.log(n / df[c]) for c in shared)
+            if weight >= min_weight:
                 edges.append((articles[i]["id"], articles[j]["id"], shared))
     return edges
 
@@ -235,6 +258,28 @@ body {
 .essay h3 { margin: 0 0 6px; font-size: 14px; color: var(--ink); font-weight: 700; }
 .essay p { margin: 0 0 8px; font-size: 13.5px; line-height: 2.1; color: var(--ink-body); }
 .essay p:last-child { margin-bottom: 0; }
+.meta {
+  margin-top: 16px;
+  border: 1px solid #e8dcc4;
+  border-inline-start: 3px solid #a8834c;
+  background: #faf6ed;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.meta[hidden] { display: none; }
+.meta h3 {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  color: #7a5a2e;
+  font-weight: 700;
+}
+.meta p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 2.05;
+  color: #4a3d28;
+}
+.meta p:last-child { margin-bottom: 0; }
 .links line { stroke: var(--edge); stroke-width: 1.2px; }
 .links line.active { stroke: var(--edge-active); stroke-width: 2px; }
 .edge-labels text {
@@ -278,7 +323,7 @@ body {
 <div id="app">
   <main id="stage" aria-label="نمودار گراف مقالات">
     <svg id="graph" role="img" aria-label="گراف نیرویی مقالات"></svg>
-    <div id="legend">«گره = مقاله، پیوند = مفاهیم مشترک»</div>
+    <div id="legend">«گره = مقاله، یال = تشابه موضوعی خاص (وزن‌دار)، خوشه = موضوع»</div>
   </main>
   <aside id="panel">
     <div id="hint">
@@ -304,11 +349,17 @@ body {
         <h3>«نتیجه»</h3>
         <div id="d-conclusion"></div>
       </section>
+      <section class="meta" id="sec-application" hidden>
+        <h3>«کاربرد، قیمت و محصولات»</h3>
+        <div id="d-application"></div>
+      </section>
     </div>
   </aside>
 </div>
 <script>
 const DATA = __DATA__;
+const PARENTS = __PARENTS__;
+const MIN_EDGE_WEIGHT = __MIN_W__;
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script>
@@ -319,22 +370,41 @@ const DATA = __DATA__;
   var articles = DATA.articles;
   var byId = new Map(articles.map(function (a) { return [a.id, a]; }));
 
-  // Edges: two articles are linked when they share at least one concept.
+  // Weighted edges: IDF per concept (ln(N/df)); generic hubs get weight 0,
+  // so a concept like «هوش مصنوعی» alone never creates an edge.
   var uniqueConcepts = articles.map(function (a) {
     return Array.from(new Set(a.concepts));
   });
-  var conceptSets = uniqueConcepts.map(function (cs) { return new Set(cs); });
+  var df = {};
+  uniqueConcepts.forEach(function (cs) {
+    cs.forEach(function (c) { df[c] = (df[c] || 0) + 1; });
+  });
+  function idf(c) { return Math.log(articles.length / df[c]); }
   var links = [];
   for (var i = 0; i < articles.length; i++) {
     for (var j = i + 1; j < articles.length; j++) {
       var shared = uniqueConcepts[j].filter(function (c) {
-        return conceptSets[i].has(c);
+        return uniqueConcepts[i].indexOf(c) !== -1;
       });
-      if (shared.length > 0) {
-        links.push({ source: articles[i].id, target: articles[j].id, concepts: shared });
+      if (!shared.length) continue;
+      var w = 0;
+      shared.forEach(function (c) { w += idf(c); });
+      if (w >= MIN_EDGE_WEIGHT) {
+        links.push({ source: articles[i].id, target: articles[j].id, concepts: shared, weight: w });
       }
     }
   }
+
+  // Topic = parent of the rarest concept (falls back to the concept itself).
+  // Same-topic articles share a cluster anchor; node colour follows the topic.
+  function topicOf(a) {
+    var cs = Array.from(new Set(a.concepts));
+    cs.sort(function (x, y) { return (df[x] || 0) - (df[y] || 0); });
+    var rarest = cs[0];
+    return PARENTS[rarest] || rarest;
+  }
+  var topics = Array.from(new Set(articles.map(topicOf)));
+  var topicIndex = new Map(topics.map(function (t, i) { return [t, i]; }));
 
   var degree = new Map(articles.map(function (a) { return [a.id, 0]; }));
   links.forEach(function (l) {
@@ -343,7 +413,7 @@ const DATA = __DATA__;
   });
 
   var nodes = articles.map(function (a) {
-    return { id: a.id, article: a, degree: degree.get(a.id) };
+    return { id: a.id, article: a, degree: degree.get(a.id), topic: topicOf(a) };
   });
 
   function nodeRadius(d) {
@@ -419,20 +489,32 @@ const DATA = __DATA__;
     d.y = height / 2 + Math.sin(angle) * spread;
   });
 
+  function anchorAngle(d) {
+    var i = topicIndex.has(d.topic) ? topicIndex.get(d.topic) : 0;
+    return (i / Math.max(topics.length, 1)) * 2 * Math.PI - Math.PI / 2;
+  }
+  function anchorRadius() { return Math.min(width, height) / 3; }
+
   var simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id(function (d) { return d.id; }).distance(210))
     .force("charge", d3.forceManyBody().strength(-520).distanceMax(700))
     .force("center", d3.forceCenter(width / 2, height / 2))
+    .force("topicX", d3.forceX(function (d) { return width / 2 + Math.cos(anchorAngle(d)) * anchorRadius(); }).strength(0.07))
+    .force("topicY", d3.forceY(function (d) { return height / 2 + Math.sin(anchorAngle(d)) * anchorRadius(); }).strength(0.07))
     .force("collide", d3.forceCollide(function (d) { return nodeExtent(d); }));
 
-  var linkSel = linkLayer.selectAll("line").data(links).join("line");
+  var linkSel = linkLayer.selectAll("line").data(links).join("line")
+    .attr("stroke-width", function (d) { return Math.min(4, 1 + d.weight); });
   linkSel.append("title").text(function (d) {
     return "مفاهیم مشترک: " + d.concepts.join("، ");
   });
 
   var labelSel = labelLayer.selectAll("text").data(links).join("text")
     .attr("text-anchor", "middle")
-    .text(function (d) { return truncate(d.concepts.join("، "), 48); });
+    .text(function (d) {
+      var discriminators = d.concepts.filter(function (c) { return idf(c) > 0; });
+      return truncate((discriminators.length ? discriminators : d.concepts).join("، "), 48);
+    });
 
   var nodeSel = nodeLayer.selectAll("g.node").data(nodes, function (d) { return d.id; }).join("g")
     .attr("class", "node")
@@ -443,7 +525,7 @@ const DATA = __DATA__;
 
   nodeSel.append("circle")
     .attr("r", nodeRadius)
-    .attr("fill", function (d, i) { return PALETTE[i % PALETTE.length]; });
+    .attr("fill", function (d) { return PALETTE[(topicIndex.get(d.topic) || 0) % PALETTE.length]; });
 
   nodeSel.append("text")
     .attr("text-anchor", "middle")
@@ -488,9 +570,9 @@ const DATA = __DATA__;
       .attr("x2", function (d) { return d.target.x; })
       .attr("y2", function (d) { return d.target.y; });
 
-    labelSel.attr("transform", function (d) {
+    labelSel.attr("transform", function (d, i) {
       var mx = (d.source.x + d.target.x) / 2;
-      var my = (d.source.y + d.target.y) / 2 - 6;
+      var my = (d.source.y + d.target.y) / 2 - 8 + (i % 2) * 30;
       return "translate(" + mx + "," + my + ")";
     });
 
@@ -507,12 +589,14 @@ const DATA = __DATA__;
   var paras = {
     claim: document.getElementById("d-claim"),
     reason: document.getElementById("d-reason"),
-    conclusion: document.getElementById("d-conclusion")
+    conclusion: document.getElementById("d-conclusion"),
+    application: document.getElementById("d-application")
   };
   var sections = {
     claim: document.getElementById("sec-claim"),
     reason: document.getElementById("sec-reason"),
-    conclusion: document.getElementById("sec-conclusion")
+    conclusion: document.getElementById("sec-conclusion"),
+    application: document.getElementById("sec-application")
   };
   var selectedId = null;
 
@@ -524,6 +608,11 @@ const DATA = __DATA__;
       container.appendChild(p);
     });
     return list.length > 0;
+  }
+
+  function fillApplication(container, value) {
+    var list = typeof value === "string" ? [value] : (Array.isArray(value) ? value : []);
+    return fillParagraphs(container, list);
   }
 
   function selectArticle(id) {
@@ -569,6 +658,7 @@ const DATA = __DATA__;
     sections.claim.hidden = !fillParagraphs(paras.claim, article.claim);
     sections.reason.hidden = !fillParagraphs(paras.reason, article.reason);
     sections.conclusion.hidden = !fillParagraphs(paras.conclusion, article.conclusion);
+    sections.application.hidden = !fillApplication(paras.application, article.application);
   }
 
   document.getElementById("btn-close").addEventListener("click", function () {
@@ -602,8 +692,11 @@ const DATA = __DATA__;
 """
 
 
-def build_page(payload: object) -> str:
-    return PAGE_TEMPLATE.replace("__DATA__", embed_data(payload), 1)
+def build_page(payload: object, parents: dict, min_edge_weight: float) -> str:
+    page = PAGE_TEMPLATE.replace("__DATA__", embed_data(payload), 1)
+    page = page.replace("__PARENTS__", embed_data(parents), 1)
+    page = page.replace("__MIN_W__", repr(min_edge_weight), 1)
+    return page
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -620,7 +713,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="graph.html",
         help="path of the HTML file to write (default: graph.html)",
     )
+    parser.add_argument(
+        "--concepts",
+        default="concepts.json",
+        help="concept-parent taxonomy file (default: concepts.json; missing file = flat taxonomy)",
+    )
+    parser.add_argument(
+        "--min-edge-weight",
+        type=float,
+        default=0.5,
+        help="minimum summed IDF weight for an edge to be drawn (default: 0.5)",
+    )
     return parser.parse_args(argv)
+
+
+def load_parents(path: Path) -> dict:
+    if not path.is_file():
+        warn(f"taxonomy file not found: {path} (using a flat concept hierarchy)")
+        return {}
+    payload = load_payload(path)
+    if not isinstance(payload, dict) or not isinstance(payload.get("parents"), dict):
+        fail(f"{path} must be an object with a 'parents' object")
+    parents = {}
+    for child, parent in payload["parents"].items():
+        if not isinstance(child, str) or (parent is not None and not isinstance(parent, str)):
+            fail(f"{path}: 'parents' must map strings to strings or null")
+        if parent is not None:
+            parents[child] = parent
+    return parents
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -631,9 +751,10 @@ def main(argv: list[str] | None = None) -> int:
     payload = load_payload(input_path)
     articles = validate_articles(payload)
     warn_on_long_articles(articles)
-    edges = compute_edges(articles)
+    parents = load_parents(Path(args.concepts))
+    edges = compute_weighted_edges(articles, args.min_edge_weight)
 
-    page = build_page(payload)
+    page = build_page(payload, parents, args.min_edge_weight)
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(page, encoding="utf-8")
