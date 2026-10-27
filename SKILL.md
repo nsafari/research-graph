@@ -1,6 +1,11 @@
 ---
 name: research-graph
 description: Analyze an article (URL, pasted text, or PDF) and grow a Persian knowledge graph of claims, reasons, conclusions, and applications. Use when the user shares an article link, pastes article text, drops a PDF, or asks to add/analyze an article into the research graph. Extracts a Persian title, 3-7 shared concepts, مدعای/دلیل/نتیجه paragraphs and an application block, independently fact-checks the extraction against the source, persists to data/articles.json, and re-renders graph.html.
+license: MIT
+compatibility: Requires Python 3 (stdlib only, no external dependencies). PDF intake requires poppler-utils (pdftotext). Runs in OpenCode and Claude Code.
+metadata:
+  author: Nasser Safarinia
+  version: "1.0.0"
 ---
 
 # Research Graph
