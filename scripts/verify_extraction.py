@@ -42,6 +42,8 @@ TRANSLATED_LABELS = {
     "گره", "یال", "پیوند",
     "وقت‌م را ذخیره می‌کند",
     "اشتباهات بزرگ‌تر را سریع‌تر",
+    "آنچه نتوانستم بررسی کنم",
+    "کمک",
 }
 
 SECTION_KEYS = ("title", "claim", "reason", "conclusion", "application")
