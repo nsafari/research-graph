@@ -307,6 +307,8 @@ body {
 .links line { stroke: var(--edge); stroke-width: 1.2px; transition: opacity 0.15s; }
 .links line.active { stroke: var(--edge-active); stroke-width: 2px; }
 .links line.dim { opacity: 0.12; }
+.links line.hover { stroke: var(--edge-active); }
+.hits line { stroke: transparent; stroke-width: 16px; cursor: help; }
 .node { transition: opacity 0.15s; }
 .edge-labels text {
   font-size: 10.5px;
@@ -316,7 +318,10 @@ body {
   stroke: var(--bg);
   stroke-width: 3px;
   stroke-linejoin: round;
+  opacity: 0;
+  transition: opacity 0.15s;
 }
+.edge-labels text.visible { opacity: 1; }
 .node circle {
   stroke: #ffffff;
   stroke-width: 1.5px;
@@ -353,7 +358,7 @@ body {
       <input id="search-input" type="search" placeholder="جستجو در عناوین، مفاهیم و متن‌ها..." autocomplete="off" aria-label="جستجو در مقاله‌ها">
       <span id="search-count" aria-live="polite"></span>
     </div>
-    <div id="legend">«گره = مقاله، یال = تشابه موضوعی خاص (وزن‌دار)، خوشه = موضوع»</div>
+    <div id="legend">«گره = مقاله، یال = تشابه موضوعی (برای دیدن علت ارتباط، نشانگر را روی یال ببرید)، خوشه = موضوع»</div>
   </main>
   <aside id="panel">
     <div id="hint">
@@ -454,6 +459,26 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
     return text.length > max ? text.slice(0, max) + "…" : text;
   }
 
+  function faNum(s) {
+    return String(s).replace(/[0-9]/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[+d]; });
+  }
+
+  // Edge label: only distinctive shared concepts, ranked by IDF.
+  // A concept whose IDF is under 30% of the edge's strongest concept is a
+  // hub-ish extra (e.g. «هوش مصنوعی» next to «عامل همیشه‌فعال») and is
+  // dropped; at most 3 concepts are listed, overflow becomes «+n», and the
+  // summed edge weight is appended so the strength of the link is visible.
+  function edgeLabelText(d) {
+    var byIdf = d.concepts.slice().sort(function (a, b) { return idf(b) - idf(a); });
+    var maxIdf = idf(byIdf[0]);
+    var strong = byIdf.filter(function (c) { return idf(c) >= 0.3 * maxIdf; });
+    if (!strong.length) strong = byIdf.slice(0, 1);
+    var shown = strong.slice(0, 3);
+    var extra = strong.length - shown.length;
+    var text = shown.join("، ") + (extra > 0 ? " +" + extra : "");
+    return truncate(text, 36) + " (وزن " + faNum(d.weight.toFixed(1)) + ")";
+  }
+
   // Wrap a title into short lines so labels stay compact and readable in RTL.
   // Widths are tuned for the 11px Vazirmatn used by .node text.
   var TITLE_MAX_CHARS = 18;
@@ -498,6 +523,7 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
   var svg = d3.select("#graph");
   var root = svg.append("g");
   var linkLayer = root.append("g").attr("class", "links");
+  var hitLayer = root.append("g").attr("class", "hits");
   var labelLayer = root.append("g").attr("class", "edge-labels");
   var nodeLayer = root.append("g").attr("class", "nodes");
 
@@ -535,15 +561,24 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
 
   var linkSel = linkLayer.selectAll("line").data(links).join("line")
     .attr("stroke-width", function (d) { return Math.min(4, 1 + d.weight); });
-  linkSel.append("title").text(function (d) {
-    return "مفاهیم مشترک: " + d.concepts.join("، ");
-  });
 
+  // Edge labels exist but stay hidden by default; they appear only on hover
+  // over the matching edge hit-area, so the graph is not covered in text.
   var labelSel = labelLayer.selectAll("text").data(links).join("text")
     .attr("text-anchor", "middle")
-    .text(function (d) {
-      var discriminators = d.concepts.filter(function (c) { return idf(c) > 0; });
-      return truncate((discriminators.length ? discriminators : d.concepts).join("، "), 48);
+    .text(function (d) { return edgeLabelText(d); });
+
+  // Wide invisible hit-area per edge (SVG lines are too thin to hover reliably).
+  var hitSel = hitLayer.selectAll("line").data(links).join("line")
+    .on("mouseenter", function (event, d) {
+      var i = links.indexOf(d);
+      d3.select(labelSel.nodes()[i]).classed("visible", true);
+      d3.select(linkSel.nodes()[i]).classed("hover", true);
+    })
+    .on("mouseleave", function (event, d) {
+      var i = links.indexOf(d);
+      d3.select(labelSel.nodes()[i]).classed("visible", false);
+      d3.select(linkSel.nodes()[i]).classed("hover", false);
     });
 
   var nodeSel = nodeLayer.selectAll("g.node").data(nodes, function (d) { return d.id; }).join("g")
@@ -595,6 +630,12 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
 
   simulation.on("tick", function () {
     linkSel
+      .attr("x1", function (d) { return d.source.x; })
+      .attr("y1", function (d) { return d.source.y; })
+      .attr("x2", function (d) { return d.target.x; })
+      .attr("y2", function (d) { return d.target.y; });
+
+    hitSel
       .attr("x1", function (d) { return d.source.x; })
       .attr("y1", function (d) { return d.source.y; })
       .attr("x2", function (d) { return d.target.x; })
