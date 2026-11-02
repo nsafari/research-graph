@@ -100,12 +100,20 @@ def warn_on_long_articles(articles: list[dict]) -> None:
             )
 
 
+GENERIC_CONCEPTS = frozenset({
+    "هوش مصنوعی",
+    "اتوماسیون کاری",
+    "عامل‌های هوش مصنوعی",
+})
+
+
 def compute_weighted_edges(articles: list[dict], min_weight: float) -> list[tuple[str, str, list[str]]]:
     """Return (source_id, target_id, shared_concepts) for pairs whose summed
     IDF weight over shared concepts reaches ``min_weight``.
 
     IDF = ln(N / df): a concept present in every article gets weight 0, so
     generic hubs (e.g. «هوش مصنوعی») can no longer clique the whole graph.
+    Edges that share *only* generic concepts are suppressed entirely.
     Must stay in sync with the identical computation in the page template.
     """
     unique_concepts = [list(dict.fromkeys(article["concepts"])) for article in articles]
@@ -120,6 +128,9 @@ def compute_weighted_edges(articles: list[dict], min_weight: float) -> list[tupl
         for j in range(i + 1, n):
             shared = [c for c in unique_concepts[j] if c in concept_sets[i]]
             if not shared:
+                continue
+            specific = [c for c in shared if c not in GENERIC_CONCEPTS]
+            if not specific:
                 continue
             weight = sum(math.log(n / df[c]) for c in shared)
             if weight >= min_weight:
@@ -358,7 +369,7 @@ body {
       <input id="search-input" type="search" placeholder="جستجو در عناوین، مفاهیم و متن‌ها..." autocomplete="off" aria-label="جستجو در مقاله‌ها">
       <span id="search-count" aria-live="polite"></span>
     </div>
-    <div id="legend">«گره = مقاله، یال = تشابه موضوعی (برای دیدن علت ارتباط، نشانگر را روی یال ببرید)، خوشه = موضوع»</div>
+    <div id="legend">«گره = مقاله، یال = تشابه موضوعی (برای دیدن علت ارتباط، نشانگر را روی یال ببرید)»</div>
   </main>
   <aside id="panel">
     <div id="hint">
@@ -407,6 +418,7 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
 
   // Weighted edges: IDF per concept (ln(N/df)); generic hubs get weight 0,
   // so a concept like «هوش مصنوعی» alone never creates an edge.
+  var GENERIC_CONCEPTS = new Set(["هوش مصنوعی", "اتوماسیون کاری", "عامل‌های هوش مصنوعی"]);
   var uniqueConcepts = articles.map(function (a) {
     return Array.from(new Set(a.concepts));
   });
@@ -422,6 +434,8 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
         return uniqueConcepts[i].indexOf(c) !== -1;
       });
       if (!shared.length) continue;
+      var hasSpecific = shared.some(function (c) { return !GENERIC_CONCEPTS.has(c); });
+      if (!hasSpecific) continue;
       var w = 0;
       shared.forEach(function (c) { w += idf(c); });
       if (w >= MIN_EDGE_WEIGHT) {
