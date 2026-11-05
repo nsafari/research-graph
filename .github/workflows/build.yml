@@ -28,8 +28,12 @@ jobs:
 
       - name: Render graph from data/articles.json
         run: |
-          mkdir -p _site
-          python3 scripts/render_graph.py --input data/articles.json --output _site/index.html
+          mkdir -p _site/assets/vendor
+          python3 scripts/render_graph.py \
+            --input data/articles.json \
+            --output _site/index.html \
+            --output-3d _site/graph-concepts3d.html
+          cp assets/vendor/3d-force-graph.min.js _site/assets/vendor/
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

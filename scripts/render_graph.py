@@ -1047,10 +1047,21 @@ body {
 const DATA = __DATA__;
 const GRAPH = __GRAPH__;
 </script>
-<script src="https://unpkg.com/3d-force-graph"></script>
+<script src="assets/vendor/3d-force-graph.min.js"></script>
+<script>
+if (typeof ForceGraph3D !== "function") {
+  document.getElementById("hint").innerHTML =
+    '<div class="hint-main">«کتابخانه‌ی گراف سه‌بعدی بارگذاری نشد»</div>' +
+    '<div class="hint-sub">فایل assets/vendor/3d-force-graph.min.js کنار صفحه لازم است. صفحه را از ریشه‌ی پروژه باز کنید یا فایل vendor را در کنار HTML بگذارید.</div>';
+}
+</script>
 <script>
 (function () {
   "use strict";
+
+  if (typeof ForceGraph3D !== "function") {
+    return;
+  }
 
   var PALETTE = ["#4e6e8e", "#5f7f6b", "#8a6f52", "#7d6480", "#4f7d7c", "#8a6470", "#55708a", "#6b7280"];
   var NEUTRAL = "#9aa3ad";
