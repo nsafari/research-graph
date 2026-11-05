@@ -3,7 +3,8 @@
 
 Reads ``data/articles.json`` (override with ``--input``), builds an undirected
 graph where nodes are articles and edges connect articles that share at least
-one concept, then writes a single-file HTML page driven by D3 v7.
+one concept, then writes two single-file HTML pages: the article graph driven
+by D3 v7, and a light 3D concept graph driven by 3d-force-graph.
 
 Only the Python standard library is used.
 """
@@ -136,6 +137,52 @@ def compute_weighted_edges(articles: list[dict], min_weight: float) -> list[tupl
             if weight >= min_weight:
                 edges.append((articles[i]["id"], articles[j]["id"], shared))
     return edges
+
+
+def compute_concept_graph(articles: list[dict], parents: dict) -> dict:
+    """Build the concept-level graph for the 3D page.
+
+    Nodes are the unique concept strings across all articles (deduped by
+    exact string, never normalized, so «هوش مصنوعی» variants never merge);
+    an edge joins two concepts that co-occur in at least one article, with
+    ``weight`` = number of shared articles and the shared article ids kept
+    on the edge. ``parent`` comes from ``load_parents``; a missing entry
+    (null/unknown parent) yields ``None`` so the page colors it neutral.
+    """
+    concept_articles: dict[str, list[str]] = {}
+    for article in articles:
+        for concept in dict.fromkeys(article["concepts"]):
+            concept_articles.setdefault(concept, []).append(article["id"])
+
+    concepts = list(concept_articles)
+    concept_sets = {c: set(ids) for c, ids in concept_articles.items()}
+    degree = {c: 0 for c in concepts}
+    edges: list[dict] = []
+    for i in range(len(concepts)):
+        for j in range(i + 1, len(concepts)):
+            source, target = concepts[i], concepts[j]
+            shared = [aid for aid in concept_articles[source] if aid in concept_sets[target]]
+            if not shared:
+                continue
+            degree[source] += 1
+            degree[target] += 1
+            edges.append({
+                "source": source,
+                "target": target,
+                "weight": len(shared),
+                "articles": shared,
+            })
+
+    nodes = [
+        {
+            "id": concept,
+            "parent": parents.get(concept),
+            "articles": list(concept_articles[concept]),
+            "degree": degree[concept],
+        }
+        for concept in concepts
+    ]
+    return {"nodes": nodes, "edges": edges}
 
 
 def embed_data(payload: object) -> str:
@@ -816,10 +863,360 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
 """
 
 
+CONCEPT_PAGE_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>گراف مفاهیم پژوهشی</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+<style>
+:root {
+  --bg: #f4f6f8;
+  --panel-bg: #ffffff;
+  --ink: #1f2a33;
+  --ink-soft: #5a6a78;
+  --ink-body: #2b3a47;
+  --line: #dfe4e9;
+  --accent: #33566e;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Vazirmatn", Tahoma, "Segoe UI", sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+#app { display: flex; flex-direction: row; height: 100vh; }
+#stage { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
+#graph { position: absolute; inset: 0; }
+#legend {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  pointer-events: none;
+  max-width: min(24rem, 72vw);
+  line-height: 1.9;
+}
+#legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 4px;
+}
+.legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid rgba(31, 42, 51, 0.2);
+}
+#panel {
+  flex: 0 0 22rem;
+  max-width: 22rem;
+  background: var(--panel-bg);
+  border-inline-start: 1px solid var(--line);
+  padding: 18px 16px 24px;
+  overflow-y: auto;
+}
+#hint { color: var(--ink-soft); text-align: center; margin-top: 14vh; padding: 0 8px; }
+#hint .hint-main { font-size: 17px; color: var(--ink); }
+#hint .hint-sub { font-size: 12.5px; margin-top: 10px; line-height: 2; }
+#detail[hidden], #hint[hidden] { display: none; }
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+#d-title { font-size: 18px; line-height: 1.8; margin: 0; font-weight: 700; }
+#btn-close {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+#btn-close:hover { background: var(--line); }
+#btn-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.meta-row {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.meta-row .field-label { flex: none; }
+.meta-row strong { color: var(--ink); font-weight: 600; }
+#d-parent { color: var(--accent); }
+#d-parent.neutral { color: var(--ink-soft); font-weight: 400; }
+.art-head {
+  margin: 16px 0 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+#d-articles { list-style: none; margin: 0; padding: 0; }
+#d-articles li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+#d-articles li:last-child { border-bottom: none; }
+#d-articles .a-title { font-size: 13.5px; line-height: 1.9; color: var(--ink-body); }
+#d-articles .a-source {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+#d-articles .a-source a { color: var(--accent); text-decoration: none; }
+#d-articles .a-source a:hover { text-decoration: underline; }
+.scene-tooltip {
+  font-family: "Vazirmatn", Tahoma, "Segoe UI", sans-serif;
+  direction: rtl;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.9;
+  max-width: 22rem;
+}
+.scene-tooltip strong { font-size: 13px; }
+.scene-tooltip .tip-sub { color: var(--ink-soft); font-size: 11.5px; }
+.scene-tooltip .tip-item { color: var(--ink-body); font-size: 12px; }
+@media (max-width: 820px) {
+  #app { flex-direction: column; height: auto; min-height: 100vh; }
+  #stage { height: 56vh; flex: none; }
+  #panel {
+    flex: none;
+    max-width: none;
+    width: auto;
+    border-inline-start: none;
+    border-top: 1px solid var(--line);
+  }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <main id="stage" aria-label="نمودار سه‌بعدی مفاهیم">
+    <div id="graph"></div>
+    <div id="legend">
+      «گره = مفهوم، یال = اشتراک در دست‌کم یک مقاله»
+      <div id="legend-items"></div>
+    </div>
+  </main>
+  <aside id="panel">
+    <div id="hint">
+      <div class="hint-main">«روی هر گره کلیک کنید»</div>
+      <div class="hint-sub">فهرست مقاله‌هایی که از این مفهوم استفاده کرده‌اند، پس از انتخاب، در این‌جا نمایش داده می‌شود.</div>
+    </div>
+    <div id="detail" hidden>
+      <div class="panel-head">
+        <h2 id="d-title"></h2>
+        <button id="btn-close" type="button">بستن</button>
+      </div>
+      <p class="meta-row"><span class="field-label">دسته</span><strong id="d-parent"></strong></p>
+      <p class="meta-row"><span class="field-label">تعداد مقاله</span><strong id="d-count"></strong></p>
+      <h3 class="art-head">«مقاله‌های این مفهوم»</h3>
+      <ul id="d-articles"></ul>
+    </div>
+  </aside>
+</div>
+<script>
+const DATA = __DATA__;
+const GRAPH = __GRAPH__;
+</script>
+<script src="https://unpkg.com/3d-force-graph"></script>
+<script>
+(function () {
+  "use strict";
+
+  var PALETTE = ["#4e6e8e", "#5f7f6b", "#8a6f52", "#7d6480", "#4f7d7c", "#8a6470", "#55708a", "#6b7280"];
+  var NEUTRAL = "#9aa3ad";
+  var articles = DATA.articles;
+  var byId = new Map(articles.map(function (a) { return [a.id, a]; }));
+  var nodes = GRAPH.nodes;
+  var links = GRAPH.edges;
+
+  // One colour per parent topic that actually appears; concepts with a null
+  // or missing parent stay neutral gray.
+  var parentsSeen = [];
+  nodes.forEach(function (n) {
+    if (n.parent && parentsSeen.indexOf(n.parent) === -1) parentsSeen.push(n.parent);
+  });
+  var colorByParent = new Map(parentsSeen.map(function (p, i) {
+    return [p, PALETTE[i % PALETTE.length]];
+  }));
+  function colorOf(n) {
+    return n.parent ? (colorByParent.get(n.parent) || NEUTRAL) : NEUTRAL;
+  }
+
+  function faNum(s) {
+    return String(s).replace(/[0-9]/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[+d]; });
+  }
+
+  // Tooltips are injected as HTML by 3d-force-graph, so escape every value.
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
+  var legendItems = document.getElementById("legend-items");
+  function addLegendItem(label, color) {
+    var item = document.createElement("span");
+    item.className = "legend-item";
+    var dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = color;
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(label));
+    legendItems.appendChild(item);
+  }
+  parentsSeen.forEach(function (p) { addLegendItem(p, colorByParent.get(p)); });
+  if (nodes.some(function (n) { return !n.parent; })) {
+    addLegendItem("بدون دسته", NEUTRAL);
+  }
+
+  var hintEl = document.getElementById("hint");
+  var detailEl = document.getElementById("detail");
+  var titleEl = document.getElementById("d-title");
+  var parentEl = document.getElementById("d-parent");
+  var countEl = document.getElementById("d-count");
+  var listEl = document.getElementById("d-articles");
+
+  function selectConcept(node) {
+    if (!node) {
+      detailEl.hidden = true;
+      hintEl.hidden = false;
+      return;
+    }
+    hintEl.hidden = true;
+    detailEl.hidden = false;
+    titleEl.textContent = node.id;
+    parentEl.textContent = node.parent || "بدون دسته";
+    parentEl.classList.toggle("neutral", !node.parent);
+    countEl.textContent = faNum(node.articles.length) + " مقاله";
+
+    listEl.replaceChildren();
+    node.articles.forEach(function (id) {
+      var a = byId.get(id);
+      if (!a) return;
+      var li = document.createElement("li");
+      var title = document.createElement("div");
+      title.className = "a-title";
+      title.textContent = a.title;
+      li.appendChild(title);
+      var source = document.createElement("span");
+      source.className = "a-source";
+      if (/^https?:\/\//i.test(a.source)) {
+        source.setAttribute("dir", "ltr");
+        var link = document.createElement("a");
+        link.href = a.source;
+        link.textContent = a.source;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        source.appendChild(link);
+      } else {
+        source.textContent = a.source;
+      }
+      li.appendChild(source);
+      listEl.appendChild(li);
+    });
+  }
+
+  document.getElementById("btn-close").addEventListener("click", function () {
+    selectConcept(null);
+  });
+  window.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !detailEl.hidden) selectConcept(null);
+  });
+
+  var stageEl = document.getElementById("stage");
+  var Graph = ForceGraph3D()(document.getElementById("graph"))
+    .width(stageEl.clientWidth)
+    .height(stageEl.clientHeight)
+    .backgroundColor("#f4f6f8")
+    .graphData({ nodes: nodes, links: links })
+    .nodeId("id")
+    .nodeVal(function (d) { return 1 + d.articles.length; })
+    .nodeColor(colorOf)
+    .nodeLabel(function (d) {
+      var sub = (d.parent || "بدون دسته") + " · " + faNum(d.articles.length) + " مقاله";
+      return '<div><strong>' + esc(d.id) + '</strong><div class="tip-sub">' + esc(sub) + '</div></div>';
+    })
+    .linkWidth(function (l) { return 0.5 + Math.min(4, l.weight); })
+    .linkColor("rgba(95, 113, 131, 0.55)")
+    .linkLabel(function (l) {
+      var titles = l.articles.map(function (id) {
+        var a = byId.get(id);
+        return a ? a.title : id;
+      });
+      var head = faNum(l.weight) + " مقاله مشترک";
+      var body = titles.map(function (t) {
+        return '<div class="tip-item">' + esc(t) + '</div>';
+      }).join("");
+      return '<div><strong>' + esc(head) + '</strong>' + body + '</div>';
+    })
+    .onNodeClick(function (d) { selectConcept(d); })
+    .onBackgroundClick(function () {
+      if (!detailEl.hidden) selectConcept(null);
+    });
+
+  var fitted = false;
+  Graph.onEngineStop(function () {
+    if (!fitted) {
+      fitted = true;
+      Graph.zoomToFit(600);
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    Graph.width(stageEl.clientWidth).height(stageEl.clientHeight);
+  });
+
+  var navInfo = document.querySelector(".scene-nav-info");
+  if (navInfo) {
+    navInfo.textContent = "چرخش: کلیک چپ · بزرگ‌نمایی: غلتک ماوس · جابه‌جایی: کلیک راست";
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
 def build_page(payload: object, parents: dict, min_edge_weight: float) -> str:
     page = PAGE_TEMPLATE.replace("__DATA__", embed_data(payload), 1)
     page = page.replace("__PARENTS__", embed_data(parents), 1)
     page = page.replace("__MIN_W__", repr(min_edge_weight), 1)
+    return page
+
+
+def build_concept_page(payload: object, concept_graph: dict) -> str:
+    page = CONCEPT_PAGE_TEMPLATE.replace("__DATA__", embed_data(payload), 1)
+    page = page.replace("__GRAPH__", embed_data(concept_graph), 1)
     return page
 
 
@@ -836,6 +1233,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output",
         default="graph.html",
         help="path of the HTML file to write (default: graph.html)",
+    )
+    parser.add_argument(
+        "--output-3d",
+        default="graph-concepts3d.html",
+        help="path of the 3D concept graph HTML file (default: graph-concepts3d.html)",
     )
     parser.add_argument(
         "--concepts",
@@ -871,12 +1273,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     input_path = Path(args.input)
     output_path = Path(args.output)
+    output_3d_path = Path(args.output_3d)
 
     payload = load_payload(input_path)
     articles = validate_articles(payload)
     warn_on_long_articles(articles)
     parents = load_parents(Path(args.concepts))
     edges = compute_weighted_edges(articles, args.min_edge_weight)
+    concept_graph = compute_concept_graph(articles, parents)
 
     page = build_page(payload, parents, args.min_edge_weight)
     try:
@@ -885,7 +1289,18 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         fail(f"cannot write output file {output_path}: {exc}")
 
-    print(f"Wrote {args.output} ({len(articles)} articles, {len(edges)} edges)")
+    concept_page = build_concept_page(payload, concept_graph)
+    try:
+        output_3d_path.parent.mkdir(parents=True, exist_ok=True)
+        output_3d_path.write_text(concept_page, encoding="utf-8")
+    except OSError as exc:
+        fail(f"cannot write output file {output_3d_path}: {exc}")
+
+    print(
+        f"Wrote {args.output} ({len(articles)} articles, {len(edges)} edges) and "
+        f"{args.output_3d} ({len(concept_graph['nodes'])} concepts, "
+        f"{len(concept_graph['edges'])} edges)"
+    )
     return 0
 
 

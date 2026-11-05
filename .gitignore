@@ -1,5 +1,6 @@
 # Generated output — regenerate with: python3 scripts/render_graph.py
 graph.html
+graph-concepts3d.html
 
 # Opencode / agent local state (session continuations, todos)
 .omo/
