@@ -205,7 +205,7 @@ PAGE_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>گراف مقالات پژوهشی</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+<link rel="stylesheet" href="assets/vendor/vazirmatn/font-face.css">
 <style>
 :root {
   --bg: #f4f6f8;
@@ -454,7 +454,7 @@ const DATA = __DATA__;
 const PARENTS = __PARENTS__;
 const MIN_EDGE_WEIGHT = __MIN_W__;
 </script>
-<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="assets/vendor/d3.v7.min.js"></script>
 <script>
 (function () {
   "use strict";
@@ -869,7 +869,7 @@ CONCEPT_PAGE_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>گراف مفاهیم پژوهشی</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+<link rel="stylesheet" href="assets/vendor/vazirmatn/font-face.css">
 <style>
 :root {
   --bg: #f4f6f8;
