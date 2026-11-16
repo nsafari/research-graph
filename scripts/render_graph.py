@@ -288,7 +288,105 @@ body {
 #hint { color: var(--ink-soft); text-align: center; margin-top: 14vh; padding: 0 8px; }
 #hint .hint-main { font-size: 17px; color: var(--ink); }
 #hint .hint-sub { font-size: 12.5px; margin-top: 10px; line-height: 2; }
-#detail[hidden], #hint[hidden] { display: none; }
+#detail[hidden], #hint[hidden], #list-view[hidden], #detail-view[hidden] { display: none; }
+#tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+}
+.tab {
+  flex: 1 1 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab.is-active {
+  background: var(--panel-bg);
+  border-color: var(--line);
+  color: var(--accent);
+  font-weight: 700;
+}
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+#list-sort, #list-tag, #list-q {
+  border: 1px solid var(--line);
+  background: var(--panel-bg);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+#list-sort:focus-visible, #list-tag:focus-visible, #list-q:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#list-q { flex: 1 1 8rem; min-width: 7rem; }
+#list-count { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+#list-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  max-height: calc(100vh - 15rem);
+  overflow-y: auto;
+}
+#list-empty { margin: 18px 0 0; font-size: 13px; color: var(--ink-soft); text-align: center; }
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: start;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 6px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--chip-bg); }
+.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.row-date {
+  flex: none;
+  width: 5.5rem;
+  font-size: 12px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  line-height: 1.9;
+}
+.row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row-title { font-size: 13.5px; line-height: 1.9; color: var(--ink); }
+.row-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .panel-head {
   display: flex;
   align-items: flex-start;
@@ -419,11 +517,33 @@ body {
     <div id="legend">«گره = مقاله، یال = تشابه موضوعی (برای دیدن علت ارتباط، نشانگر را روی یال ببرید)»</div>
   </main>
   <aside id="panel">
-    <div id="hint">
-      <div class="hint-main">«روی هر گره کلیک کنید»</div>
-      <div class="hint-sub">جزئیات مقاله پس از انتخاب، در این‌جا نمایش داده می‌شود.</div>
+    <div id="tabs" role="tablist" aria-label="پنل کناری">
+      <button id="tab-list" class="tab is-active" type="button" role="tab" aria-selected="true">مقالات</button>
+      <button id="tab-detail" class="tab" type="button" role="tab" aria-selected="false">جزئیات</button>
     </div>
-    <div id="detail" hidden>
+    <div id="list-view" role="tabpanel">
+      <div id="list-controls">
+        <select id="list-sort" aria-label="مرتب‌سازی فهرست">
+          <option value="date_desc">تاریخ ثبت (جدیدترین)</option>
+          <option value="date_asc">تاریخ ثبت (قدیمی‌ترین)</option>
+          <option value="title">عنوان (الفبا)</option>
+          <option value="id">شناسه</option>
+        </select>
+        <select id="list-tag" aria-label="برچسب">
+          <option value="">همه برچسب‌ها</option>
+        </select>
+        <input id="list-q" type="search" placeholder="جستجو در عنوان و متن..." autocomplete="off" aria-label="جستجو در فهرست مقاله‌ها">
+        <span id="list-count" aria-live="polite"></span>
+      </div>
+      <div id="list-rows"></div>
+      <p id="list-empty" hidden>مقاله‌ای یافت نشد.</p>
+    </div>
+    <div id="detail-view" hidden>
+      <div id="hint">
+        <div class="hint-main">«روی هر گره یا ردیفی کلیک کنید»</div>
+        <div class="hint-sub">جزئیات مقاله پس از انتخاب، در این‌جا نمایش داده می‌شود.</div>
+      </div>
+      <div id="detail" hidden>
       <div class="panel-head">
         <h2 id="d-title"></h2>
         <button id="btn-close" type="button">بستن</button>
@@ -446,6 +566,7 @@ body {
         <h3>«کاربرد، قیمت و محصولات»</h3>
         <div id="d-application"></div>
       </section>
+      </div>
     </div>
   </aside>
 </div>
@@ -760,6 +881,7 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
       return;
     }
 
+    showTab("detail");
     var article = byId.get(id);
     hintEl.hidden = true;
     detailEl.hidden = false;
@@ -795,6 +917,7 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
 
   document.getElementById("btn-close").addEventListener("click", function () {
     selectArticle(null);
+    showTab("list");
   });
 
   // Clear selection on background clicks, but ignore the click that ends a pan.
@@ -850,6 +973,137 @@ const MIN_EDGE_WEIGHT = __MIN_W__;
       if (first) selectArticle(first.id);
     }
   });
+
+  var listView = document.getElementById("list-view");
+  var detailView = document.getElementById("detail-view");
+  var tabListBtn = document.getElementById("tab-list");
+  var tabDetailBtn = document.getElementById("tab-detail");
+  var listSort = document.getElementById("list-sort");
+  var listTag = document.getElementById("list-tag");
+  var listQ = document.getElementById("list-q");
+  var listCount = document.getElementById("list-count");
+  var listRows = document.getElementById("list-rows");
+  var listEmpty = document.getElementById("list-empty");
+
+  function showTab(name) {
+    var isList = name === "list";
+    listView.hidden = !isList;
+    detailView.hidden = isList;
+    tabListBtn.classList.toggle("is-active", isList);
+    tabDetailBtn.classList.toggle("is-active", !isList);
+    tabListBtn.setAttribute("aria-selected", isList ? "true" : "false");
+    tabDetailBtn.setAttribute("aria-selected", isList ? "false" : "true");
+  }
+
+  tabListBtn.addEventListener("click", function () { showTab("list"); });
+  tabDetailBtn.addEventListener("click", function () { showTab("detail"); });
+
+  var tags = Array.from(new Set(articles.reduce(function (acc, a) {
+    return acc.concat(a.concepts);
+  }, [])));
+  tags.sort(function (a, b) { return a.localeCompare(b, "fa"); });
+  tags.forEach(function (tag) {
+    var option = document.createElement("option");
+    option.value = tag;
+    option.textContent = tag;
+    listTag.appendChild(option);
+  });
+
+  function compareTitles(a, b) {
+    var t = a.title.localeCompare(b.title, "fa");
+    if (t !== 0) return t;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
+
+  function comparatorFor(sort) {
+    if (sort === "title") return compareTitles;
+    if (sort === "id") {
+      return function (a, b) {
+        var c = a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        return c !== 0 ? c : a.title.localeCompare(b.title, "fa");
+      };
+    }
+    var dir = sort === "date_asc" ? 1 : -1;
+    return function (a, b) {
+      var da = a.registered_date || "";
+      var db = b.registered_date || "";
+      var c = da < db ? -1 : da > db ? 1 : 0;
+      if (c !== 0) return c * dir;
+      return compareTitles(a, b);
+    };
+  }
+
+  function buildRow(a) {
+    var row = document.createElement("button");
+    row.type = "button";
+    row.className = "row";
+    row.dataset.id = a.id;
+
+    var date = document.createElement("span");
+    date.className = "row-date";
+    date.textContent = a.registered_date ? toFaDigits(a.registered_date) : "—";
+    row.appendChild(date);
+
+    var body = document.createElement("span");
+    body.className = "row-body";
+
+    var title = document.createElement("span");
+    title.className = "row-title";
+    title.textContent = a.title;
+    body.appendChild(title);
+
+    var chips = document.createElement("span");
+    chips.className = "row-chips";
+    a.concepts.slice(0, 4).forEach(function (concept) {
+      var chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = concept;
+      chips.appendChild(chip);
+    });
+    if (a.concepts.length > 4) {
+      var more = document.createElement("span");
+      more.className = "chip";
+      more.textContent = "+" + toFaDigits(a.concepts.length - 4);
+      chips.appendChild(more);
+    }
+    body.appendChild(chips);
+    row.appendChild(body);
+
+    row.addEventListener("click", function () { selectArticle(a.id); });
+    return row;
+  }
+
+  function renderList() {
+    var q = listQ.value.trim().toLowerCase();
+    var tag = listTag.value;
+    var rows = articles.filter(function (a) {
+      if (tag && a.concepts.indexOf(tag) === -1) return false;
+      if (q && textById.get(a.id).indexOf(q) === -1) return false;
+      return true;
+    });
+    rows.sort(comparatorFor(listSort.value));
+    listRows.replaceChildren();
+    rows.forEach(function (a) { listRows.appendChild(buildRow(a)); });
+    listEmpty.hidden = rows.length > 0;
+    listCount.textContent = toFaDigits(rows.length) + " از " + toFaDigits(articles.length) + " مقاله";
+  }
+
+  listSort.addEventListener("change", renderList);
+  listTag.addEventListener("change", renderList);
+  listQ.addEventListener("input", renderList);
+
+  (function applyUrlState() {
+    var params = new URLSearchParams(window.location.search);
+    var sort = params.get("sort");
+    if (["date_desc", "date_asc", "title", "id"].indexOf(sort) === -1) sort = "date_desc";
+    listSort.value = sort;
+    var tag = params.get("tag");
+    if (tag !== null && tags.indexOf(tag) !== -1) listTag.value = tag;
+    var q = params.get("q");
+    if (q) listQ.value = q;
+    renderList();
+    showTab(params.get("tab") === "detail" ? "detail" : "list");
+  })();
 
   window.addEventListener("resize", function () {
     measure();
